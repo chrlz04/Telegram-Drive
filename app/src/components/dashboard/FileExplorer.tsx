@@ -6,6 +6,7 @@ import { EmptyState } from './EmptyState';
 import { TelegramFile } from '../../types';
 import { ContextMenu } from './ContextMenu';
 import { FileListItem } from './FileListItem';
+import { useSettings } from '../../context/SettingsContext';
 
 type SortField = 'name' | 'size' | 'date';
 type SortDirection = 'asc' | 'desc';
@@ -62,6 +63,9 @@ export function FileExplorer({
     files, loading, error, viewMode, selectedIds, activeFolderId,
     onFileClick, onDelete, onDownload, onPreview, onManualUpload, onFolderUpload, showFolderUpload, onSelectionClear, onToggleSelection, onDrop, onDragStart, onDragEnd
 }: FileExplorerProps) {
+    const { settings } = useSettings();
+    const scrollPb = settings.navbarStyle === 'floating-pill' ? '80px' : undefined;
+
     const [sortField, setSortField] = useState<SortField>('name');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: TelegramFile } | null>(null);
@@ -160,7 +164,7 @@ export function FileExplorer({
 
     if (loading) {
         return (
-            <div className="flex-1 p-6 flex justify-center items-center text-telegram-subtext flex-col gap-4">
+            <div className="flex-1 p-6 flex justify-center items-center text-telegram-subtext flex-col gap-4" style={{ paddingBottom: scrollPb }}>
                 <div className="w-8 h-8 border-4 border-telegram-primary border-t-transparent rounded-full animate-spin"></div>
                 Loading your files...
             </div>
@@ -173,7 +177,7 @@ export function FileExplorer({
 
     if (files.length === 0) {
         return (
-            <div className="flex-1 p-6 overflow-auto">
+            <div className="flex-1 p-6 overflow-auto" style={{ paddingBottom: scrollPb }}>
                 <EmptyState onUpload={onManualUpload} />
             </div>
         );
@@ -183,6 +187,7 @@ export function FileExplorer({
         <div
             ref={parentRef}
             className="flex-1 p-6 overflow-auto custom-scrollbar"
+            style={{ paddingBottom: scrollPb }}
             onClick={(e) => {
                 if (e.target === e.currentTarget) onSelectionClear();
             }}

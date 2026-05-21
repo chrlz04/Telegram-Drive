@@ -24,3 +24,4 @@ export const isVideoFile   = (name: string) => endsWithAny(name, VIDEO_EXTENSION
 export const isAudioFile   = (name: string) => endsWithAny(name, AUDIO_EXTENSIONS);
 export const isImageFile   = (name: string) => endsWithAny(name, IMAGE_EXTENSIONS);
 export const isPdfFile     = (name: string) => name.toLowerCase().endsWith('.pdf');
+export const isDocxFile    = (name: string) => /\.(docx|doc)$/i.test(name);

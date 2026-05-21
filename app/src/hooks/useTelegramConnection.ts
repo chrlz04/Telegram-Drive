@@ -127,19 +127,15 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         }
     };
 
-    const handleCreateFolder = async (name: string) => {
-        if (!store) return;
-        try {
-            const newFolder = await invoke<TelegramFolder>('cmd_create_folder', { name });
-            const updated = [...folders, newFolder];
-            setFolders(updated);
-            await store.set('folders', updated);
-            await store.save();
-            toast.success(`Folder "${name}" created.`);
-        } catch (e) {
-            toast.error("Failed to create folder: " + e);
-            throw e;
-        }
+    const handleCreateFolder = async (name: string, parentId: number | null = null): Promise<TelegramFolder> => {
+        if (!store) throw new Error('Store not ready');
+        const newFolder = await invoke<TelegramFolder>('cmd_create_folder', { name, parentId });
+        const updated = [...folders, newFolder];
+        setFolders(updated);
+        await store.set('folders', updated);
+        await store.save();
+        toast.success(`Folder "${name}" created.`);
+        return newFolder;
     };
 
     const handleFolderDelete = async (folderId: number, folderName: string) => {

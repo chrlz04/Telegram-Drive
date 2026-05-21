@@ -1,14 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 
 import { TelegramFile, BandwidthStats } from '../types';
-import { formatBytes, isMediaFile, isPdfFile } from '../utils';
+import { formatBytes, isMediaFile, isPdfFile, isDocxFile } from '../utils';
 
 // Components
 import { Sidebar } from './dashboard/Sidebar';
+import { FloatingPillNav } from './dashboard/FloatingPillNav';
 import { TopBar } from './dashboard/TopBar';
 import { FileExplorer } from './dashboard/FileExplorer';
 import { UploadQueue } from './dashboard/UploadQueue';
@@ -17,9 +18,9 @@ import { MoveToFolderModal } from './dashboard/MoveToFolderModal';
 import { PreviewModal } from './dashboard/PreviewModal';
 import { MediaPlayer } from './dashboard/MediaPlayer';
 import { DragDropOverlay } from './dashboard/DragDropOverlay';
-import { ExternalDropBlocker } from './dashboard/ExternalDropBlocker';
 import { PdfViewer } from './dashboard/PdfViewer';
 import { SettingsModal } from './dashboard/SettingsModal';
+import { DocxViewer } from './dashboard/DocxViewer';
 
 // Hooks
 import { useTelegramConnection } from '../hooks/useTelegramConnection';
@@ -59,6 +60,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     };
     const [playingFile, setPlayingFile] = useState<TelegramFile | null>(null);
     const [pdfFile, setPdfFile] = useState<TelegramFile | null>(null);
+    const [docxFile, setDocxFile] = useState<TelegramFile | null>(null);
     const [previewContextFiles, setPreviewContextFiles] = useState<TelegramFile[]>([]);
     const [previewContextIndex, setPreviewContextIndex] = useState(-1);
 
@@ -90,7 +92,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     } = useFileOperations(activeFolderId, selectedIds, setSelectedIds, displayedFiles);
 
-    const { uploadQueue, setUploadQueue, handleManualUpload, handleFolderUpload, cancelAll: cancelUploads, cancelItem: cancelUploadItem, retryItem: retryUploadItem, isDragging } = useFileUpload(activeFolderId, store);
+    const { uploadQueue, setUploadQueue, handleManualUpload, handleFolderUpload, cancelAll: cancelUploads, cancelItem: cancelUploadItem, retryItem: retryUploadItem, isDragging } = useFileUpload(activeFolderId, store, handleCreateFolder);
     const { downloadQueue, queueDownload, clearFinished: clearDownloads, cancelAll: cancelDownloads, cancelItem: cancelDownloadItem, retryItem: retryDownloadItem } = useFileDownload(store);
 
 
@@ -110,6 +112,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         setPreviewFile(null);
         setPlayingFile(null);
         setPdfFile(null);
+        setDocxFile(null);
     }, []);
 
     const handleFocusSearch = useCallback(() => {
@@ -139,7 +142,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         onEscape: handleEscape,
         onSearch: handleFocusSearch,
         onEnter: handleEnter,
-        enabled: !previewFile && !playingFile && !pdfFile && !showMoveModal // Disable when modals are open
+        enabled: !previewFile && !playingFile && !pdfFile && !docxFile && !showMoveModal // Disable when modals are open
     });
 
 
@@ -197,26 +200,35 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
         const isMedia = isMediaFile(file.name);
         const isPdf = isPdfFile(file.name);
+        const isDocx = isDocxFile(file.name);
 
         if (isMedia) {
             setPlayingFile(file);
             setPreviewFile(null);
             setPdfFile(null);
+            setDocxFile(null);
         } else if (isPdf) {
             setPdfFile(file);
             setPreviewFile(null);
             setPlayingFile(null);
+            setDocxFile(null);
+        } else if (isDocx) {
+            setDocxFile(file);
+            setPreviewFile(null);
+            setPlayingFile(null);
+            setPdfFile(null);
         } else {
             setPreviewFile(file);
             setPlayingFile(null);
             setPdfFile(null);
+            setDocxFile(null);
         }
     };
 
     const navigatePreview = useCallback((step: 1 | -1) => {
         if (previewContextFiles.length === 0) return;
 
-        const currentFileId = previewFile?.id ?? playingFile?.id ?? pdfFile?.id;
+        const currentFileId = previewFile?.id ?? playingFile?.id ?? pdfFile?.id ?? docxFile?.id;
         if (!currentFileId) return;
 
         const currentIndex = previewContextFiles.findIndex((f) => f.id === currentFileId);
@@ -230,21 +242,30 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
         const isMedia = isMediaFile(nextFile.name);
         const isPdf = isPdfFile(nextFile.name);
+        const isDocx = isDocxFile(nextFile.name);
 
         if (isMedia) {
             setPlayingFile(nextFile);
             setPreviewFile(null);
             setPdfFile(null);
+            setDocxFile(null);
         } else if (isPdf) {
             setPdfFile(nextFile);
             setPreviewFile(null);
             setPlayingFile(null);
+            setDocxFile(null);
+        } else if (isDocx) {
+            setDocxFile(nextFile);
+            setPreviewFile(null);
+            setPlayingFile(null);
+            setPdfFile(null);
         } else {
             setPreviewFile(nextFile);
             setPlayingFile(null);
             setPdfFile(null);
+            setDocxFile(null);
         }
-    }, [previewContextFiles, previewFile, playingFile, pdfFile]);
+    }, [previewContextFiles, previewFile, playingFile, pdfFile, docxFile]);
 
     const handleNextPreview = useCallback(() => {
         navigatePreview(1);
@@ -311,9 +332,20 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         }
     }
 
-    const currentFolderName = activeFolderId === null
-        ? "Saved Messages"
-        : folders.find(f => f.id === activeFolderId)?.name || "Folder";
+    const folderPath = useMemo(() => {
+        const root = { id: null as number | null, name: 'Saved Messages' };
+        if (activeFolderId === null) return [root];
+        const map = new Map(folders.map(f => [f.id, f]));
+        const segments: { id: number | null; name: string }[] = [];
+        let cur: number | null = activeFolderId;
+        while (cur !== null) {
+            const f = map.get(cur);
+            if (!f) break;
+            segments.unshift({ id: f.id, name: f.name });
+            cur = f.parent_id ?? null;
+        }
+        return [root, ...segments];
+    }, [folders, activeFolderId]);
 
 
     const handleRootDragOver = (e: React.DragEvent) => {
@@ -341,8 +373,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             onDragOver={handleRootDragOver}
             onDragEnter={handleRootDragEnter}
         >
-
-            <ExternalDropBlocker onUploadClick={handleManualUpload} />
 
             <AnimatePresence>
                 {showMoveModal && (
@@ -378,26 +408,56 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         key="pdf-viewer"
                     />
                 )}
+                {docxFile && (
+                    <DocxViewer
+                        file={docxFile}
+                        onClose={() => setDocxFile(null)}
+                        onNext={handleNextPreview}
+                        onPrev={handlePrevPreview}
+                        currentIndex={previewContextIndex}
+                        totalItems={previewContextFiles.length}
+                        activeFolderId={activeFolderId}
+                        key="docx-viewer"
+                    />
+                )}
                 {isDragging && internalDragFileId === null && <DragDropOverlay key="drag-drop-overlay" />}
             </AnimatePresence>
 
-            <Sidebar
-                folders={folders}
-                activeFolderId={activeFolderId}
-                setActiveFolderId={setActiveFolderId}
-                onDrop={handleDropOnFolder}
-                onDelete={handleFolderDelete}
-                onCreate={handleCreateFolder}
-                isSyncing={isSyncing}
-                isConnected={isConnected}
-                onSync={handleSyncFolders}
-                onLogout={handleLogout}
-                bandwidth={bandwidth || null}
-            />
+            {settings.navbarStyle === 'floating-pill' ? (
+                <FloatingPillNav
+                    folders={folders}
+                    activeFolderId={activeFolderId}
+                    setActiveFolderId={setActiveFolderId}
+                    isConnected={isConnected}
+                    isSyncing={isSyncing}
+                    onSync={handleSyncFolders}
+                    onLogout={handleLogout}
+                    onCreate={handleCreateFolder}
+                    bandwidth={bandwidth || null}
+                />
+            ) : (
+                <Sidebar
+                    folders={folders}
+                    activeFolderId={activeFolderId}
+                    setActiveFolderId={setActiveFolderId}
+                    onDrop={handleDropOnFolder}
+                    onDelete={handleFolderDelete}
+                    onCreate={handleCreateFolder}
+                    isSyncing={isSyncing}
+                    isConnected={isConnected}
+                    onSync={handleSyncFolders}
+                    onLogout={handleLogout}
+                    bandwidth={bandwidth || null}
+                />
+            )}
 
-            <main className="flex-1 flex flex-col" onClick={(e) => { if (e.target === e.currentTarget) setSelectedIds([]); }}>
+            <main
+                className="flex-1 flex flex-col"
+                onClick={(e) => { if (e.target === e.currentTarget) setSelectedIds([]); }}
+            >
                 <TopBar
-                    currentFolderName={currentFolderName}
+                    folderPath={folderPath}
+                    onNavigate={setActiveFolderId}
                     selectedIds={selectedIds}
                     onShowMoveModal={() => setShowMoveModal(true)}
                     onBulkDownload={handleBulkDownload}

@@ -202,12 +202,18 @@ pub async fn cmd_get_thumbnail(
         let _ = std::fs::create_dir_all(&cache_dir);
     }
 
-    // Check for any cached thumbnail for this message
-    // Look for existing cached file
+    // Build a folder-scoped cache key so that the same message_id from
+    // different folders/channels never collides (mirrors cmd_get_preview).
+    let folder_key = folder_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "home".to_string());
+    let cache_prefix = format!("{}_{}", folder_key, message_id);
+
+    // Check for any cached thumbnail for this (folder, message) pair
     if let Ok(entries) = std::fs::read_dir(&cache_dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with(&format!("{}.", message_id)) {
+            if name.starts_with(&format!("{}.", cache_prefix)) {
                 // Found cached thumbnail, return as base64
                 if let Ok(bytes) = std::fs::read(entry.path()) {
                     let ext = name.rsplit('.').next().unwrap_or("jpg");
@@ -259,7 +265,8 @@ pub async fn cmd_get_thumbnail(
 
             if is_image {
                 // Get photo thumbnail (smallest size for speed)
-                let save_path = cache_dir.join(format!("{}.{}", message_id, ext));
+                // Use folder-scoped filename to prevent cross-folder cache collisions.
+                let save_path = cache_dir.join(format!("{}.{}", cache_prefix, ext));
                 let save_path_str = save_path.to_string_lossy().to_string();
 
                 // Download the thumbnail/photo

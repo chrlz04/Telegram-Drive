@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { load } from "@tauri-apps/plugin-store";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthWizard } from "./components/AuthWizard";
@@ -23,6 +24,20 @@ function AppContent() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
   const { theme } = useTheme();
   const { available, version, downloading, progress, downloadAndInstall, dismissUpdate } = useUpdateCheck();
+
+  // F11 — toggle fullscreen
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const onKey = async (e: KeyboardEvent) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        const full = await win.isFullscreen();
+        await win.setFullscreen(!full);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // On mount: check for a saved session and auto-restore it.
   // This is the SINGLE source of truth for the initial connection.

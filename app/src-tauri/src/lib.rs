@@ -196,6 +196,9 @@ pub fn run() {
             commands::cmd_delete_image_thumbnail,
             commands::cmd_zip_folder,
             commands::cmd_delete_temp_zip,
+            commands::cmd_is_directory,
+            commands::cmd_list_dir_files,
+            commands::cmd_list_dir_entries,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

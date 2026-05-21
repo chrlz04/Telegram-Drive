@@ -4,7 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { QueueItem } from '../types';
+import { QueueItem, TelegramFolder } from '../types';
 import { useFileDrop } from './useFileDrop';
 import { useSettings } from '../context/SettingsContext';
 import type { Store } from '@tauri-apps/plugin-store';
@@ -17,7 +17,11 @@ interface ProgressPayload {
     speed_bytes_per_sec: number;
 }
 
-export function useFileUpload(activeFolderId: number | null, store: Store | null) {
+export function useFileUpload(
+    activeFolderId: number | null,
+    store: Store | null,
+    onCreateFolder: ((name: string, parentId: number | null) => Promise<TelegramFolder>) | null = null,
+) {
     const queryClient = useQueryClient();
     const { settings } = useSettings();
     const [uploadQueue, setUploadQueue] = useState<QueueItem[]>([]);
@@ -25,8 +29,14 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
     const [initialized, setInitialized] = useState(false);
     const cancelledRef = useRef<Set<string>>(new Set());
 
+    // Keep a ref so drag-drop callback always reads the latest active folder
+    // without needing useCallback / effect re-registration.
+    const activeFolderIdRef = useRef(activeFolderId);
+    useEffect(() => { activeFolderIdRef.current = activeFolderId; }, [activeFolderId]);
+
     // Listen for progress events from Rust
     useEffect(() => {
+        let cancelled = false;
         let unlisten: UnlistenFn | undefined;
         listen<ProgressPayload>('upload-progress', (event) => {
             setUploadQueue(q => q.map(i =>
@@ -38,8 +48,10 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
                     speedBytesPerSec: event.payload.speed_bytes_per_sec,
                 } : i
             ));
-        }).then(fn => { unlisten = fn; });
-        return () => { unlisten?.(); };
+        }).then(fn => {
+            if (cancelled) { fn(); } else { unlisten = fn; }
+        });
+        return () => { cancelled = true; unlisten?.(); };
     }, []);
 
     useEffect(() => {
@@ -208,7 +220,125 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         ));
     };
 
-    const { isDragging } = useFileDrop();
+    // ------------------------------------------------------------------
+    // OS drag-and-drop handler
+    // Called by useFileDrop when the user drops files/folders from Explorer
+    // or Finder onto the app window.
+    // ------------------------------------------------------------------
+    const handleDroppedPaths = async (paths: string[]) => {
+        const folderId = activeFolderIdRef.current;
+        const newItems: QueueItem[] = [];
+
+        // Normalise separators so Windows backslashes and Unix slashes compare equally.
+        const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/$/, '');
+
+        // Some OS / Explorer builds include a folder's children alongside the folder
+        // itself when the user drags a mixed selection.  Remove any path that is a
+        // descendant of another path in the same drop — processDir handles children.
+        const topLevel = paths.filter(p =>
+            !paths.some(other => other !== p && norm(p).startsWith(norm(other) + '/'))
+        );
+
+        // ------------------------------------------------------------------
+        // Recursive helper: create a Telegram Drive channel for `dirPath`
+        // under `parentFolderId`, then walk every child entry:
+        //   • files       → queued for upload into this channel
+        //   • sub-dirs    → recurse (creates another channel, and so on)
+        //
+        // `depth` guards against pathological cases (circular symlinks,
+        // absurdly deep trees).  Hard-capped at MAX_DIR_DEPTH levels.
+        // ------------------------------------------------------------------
+        const MAX_DIR_DEPTH = 20;
+
+        async function processDir(
+            dirPath: string,
+            parentFolderId: number | null,
+            depth: number,
+        ): Promise<void> {
+            if (depth > MAX_DIR_DEPTH) {
+                toast.warning(`Skipping deeply nested folder (depth > ${MAX_DIR_DEPTH}): ${dirPath}`);
+                return;
+            }
+
+            const name = dirPath.split(/[\\/]/).filter(Boolean).pop() ?? 'folder';
+
+            if (!onCreateFolder) {
+                // No folder-creation capability — fall back to zipping
+                if (settings.zipFolders) {
+                    toast.info(`Zipping "${name}"…`);
+                    try {
+                        const zipPath = await invoke<string>('cmd_zip_folder', { folderPath: dirPath });
+                        newItems.push({
+                            id: Math.random().toString(36).slice(2, 11),
+                            path: zipPath,
+                            folderId: parentFolderId,
+                            status: 'pending',
+                            tempZipPath: zipPath,
+                        });
+                    } catch (e) {
+                        toast.error(`Failed to zip "${name}": ${e}`);
+                    }
+                } else {
+                    toast.info(`Cannot upload folder "${name}" — connect your account first.`);
+                }
+                return;
+            }
+
+            try {
+                const folder = await onCreateFolder(name, parentFolderId);
+                const entries = await invoke<{ path: string; is_dir: boolean }[]>(
+                    'cmd_list_dir_entries', { path: dirPath }
+                ).catch(() => [] as { path: string; is_dir: boolean }[]);
+
+                for (const entry of entries) {
+                    if (entry.is_dir) {
+                        // Recurse into sub-directory
+                        await processDir(entry.path, folder.id, depth + 1);
+                    } else {
+                        newItems.push({
+                            id: Math.random().toString(36).slice(2, 11),
+                            path: entry.path,
+                            folderId: folder.id,
+                            status: 'pending',
+                        });
+                    }
+                }
+
+                if (entries.length === 0) {
+                    toast.info(`Folder "${name}" created (empty).`);
+                }
+            } catch (e) {
+                toast.error(`Failed to process folder "${name}": ${e}`);
+            }
+        }
+
+        for (const path of topLevel) {
+            const isDir = await invoke<boolean>('cmd_is_directory', { path }).catch(() => false);
+            if (isDir) {
+                await processDir(path, folderId, 0);
+            } else {
+                // Regular file — queue directly into the active folder
+                newItems.push({
+                    id: Math.random().toString(36).slice(2, 11),
+                    path,
+                    folderId,
+                    status: 'pending',
+                });
+            }
+        }
+
+        if (newItems.length > 0) {
+            setUploadQueue(prev => [...prev, ...newItems]);
+            const fileCount  = newItems.filter(i => !i.tempZipPath).length;
+            const folderCount = newItems.filter(i =>  i.tempZipPath).length;
+            const parts: string[] = [];
+            if (fileCount  > 0) parts.push(`${fileCount} file${fileCount > 1 ? 's' : ''}`);
+            if (folderCount > 0) parts.push(`${folderCount} folder${folderCount > 1 ? 's' : ''}`);
+            toast.info(`Queued ${parts.join(' and ')} for upload`);
+        }
+    };
+
+    const { isDragging } = useFileDrop(handleDroppedPaths);
 
     return {
         uploadQueue,

@@ -7,6 +7,7 @@ export interface Settings {
     maxConcurrentUploads: number;
     maxConcurrentDownloads: number;
     zipFolders: boolean;
+    navbarStyle: 'sidebar' | 'floating-pill';
 }
 
 const defaultSettings: Settings = {
@@ -15,6 +16,7 @@ const defaultSettings: Settings = {
     maxConcurrentUploads: 6,
     maxConcurrentDownloads: 6,
     zipFolders: true,
+    navbarStyle: 'sidebar',
 };
 
 interface SettingsContextType {

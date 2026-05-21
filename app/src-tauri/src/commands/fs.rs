@@ -10,38 +10,47 @@ use crate::commands::utils::{resolve_peer, map_error};
 #[tauri::command]
 pub async fn cmd_create_folder(
     name: String,
+    parent_id: Option<i64>,
     state: State<'_, TelegramState>,
 ) -> Result<FolderMetadata, String> {
     let client_opt = {
         state.client.lock().await.clone()
     };
-    
+
     // --- MOCK ---
     if client_opt.is_none() {
         let mock_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-        log::info!("[MOCK] Created folder '{}' with ID {}", name, mock_id);
+        log::info!("[MOCK] Created folder '{}' (parent: {:?}) with ID {}", name, parent_id, mock_id);
         return Ok(FolderMetadata {
             id: mock_id,
             name,
-            parent_id: None,
+            parent_id,
         });
     }
     // -----------
     let client = client_opt.unwrap();
-    log::info!("Creating Telegram Channel: {}", name);
-    
+    log::info!("Creating Telegram Channel: '{}' (parent: {:?})", name, parent_id);
+
+    // Encode parent relationship in the title so scan can recover it without extra API calls.
+    // Root folders:  "Name [TD]"
+    // Child folders: "Name [TD:12345678]"
+    let title = match parent_id {
+        Some(pid) => format!("{} [TD:{}]", name, pid),
+        None      => format!("{} [TD]", name),
+    };
+
     let result = client.invoke(&tl::functions::channels::CreateChannel {
         broadcast: true,
         megagroup: false,
-        title: format!("{} [TD]", name),
+        title,
         about: "Telegram Drive Storage Folder\n[telegram-drive-folder]".to_string(),
         geo_point: None,
         address: None,
         for_import: false,
         forum: false,
-        ttl_period: None, // Initial creation TTL
+        ttl_period: None,
     }).await.map_err(map_error)?;
-    
+
     let (chat_id, access_hash) = match result {
         tl::enums::Updates::Updates(u) => {
              let chat = u.chats.first().ok_or("No chat in updates")?;
@@ -50,7 +59,7 @@ pub async fn cmd_create_folder(
                  _ => return Err("Created chat is not a channel".to_string()),
              }
         },
-        _ => return Err("Unexpected response (not Updates::Updates)".to_string()), 
+        _ => return Err("Unexpected response (not Updates::Updates)".to_string()),
     };
 
     // Explicitly Disable TTL
@@ -61,13 +70,13 @@ pub async fn cmd_create_folder(
 
     let _ = client.invoke(&tl::functions::messages::SetHistoryTtl {
         peer: tl::enums::InputPeer::Channel(tl::types::InputPeerChannel { channel_id: chat_id, access_hash }),
-        period: 0, 
+        period: 0,
     }).await;
 
     Ok(FolderMetadata {
         id: chat_id,
         name,
-        parent_id: None,
+        parent_id,
     })
 }
 
@@ -216,6 +225,18 @@ pub async fn cmd_upload_file(
 
     // Create progress-tracking reader
     let (mut reader, file_size, bytes_counter) = ProgressReader::new(&path).await?;
+
+    // Telegram rejects uploads with 0 parts (FILE_PARTS_INVALID at sendMedia).
+    // Catch empty files here so the user gets a clear message instead of a
+    // cryptic Telegram RPC error.
+    if file_size == 0 {
+        let name = std::path::Path::new(&path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        return Err(format!("Cannot upload '{}': the file is empty (0 bytes).", name));
+    }
+
     let file_name = std::path::Path::new(&path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -563,6 +584,42 @@ pub async fn cmd_search_global(
     Ok(files)
 }
 
+/// Parse a Telegram Drive folder title and extract the display name + optional parent ID.
+///
+/// Supported formats:
+///   "Name [TD]"        → root folder, parent_id = None
+///   "Name [TD:12345]"  → child folder, parent_id = Some(12345)
+///   "name [td:12345]"  → same (case-insensitive)
+///
+/// Returns None if the title is not a Telegram Drive folder.
+fn parse_td_title(title: &str) -> Option<(String, Option<i64>)> {
+    let lower = title.to_lowercase();
+
+    // New format with parent ID: "[TD:12345]"
+    if let Some(start) = lower.rfind("[td:") {
+        let rest = &title[start..]; // keep original case for the numeric part
+        if let Some(end) = rest.find(']') {
+            let id_str = &rest[4..end]; // skip the 4-char "[TD:" prefix
+            if let Ok(parent_id) = id_str.trim().parse::<i64>() {
+                let display_name = title[..start].trim().to_string();
+                return Some((display_name, Some(parent_id)));
+            }
+        }
+    }
+
+    // Root / legacy format: "[TD]" or "[td]"
+    if lower.contains("[td]") {
+        let display_name = title
+            .replace(" [TD]", "").replace(" [td]", "")
+            .replace("[TD]", "").replace("[td]", "")
+            .trim()
+            .to_string();
+        return Some((display_name, None));
+    }
+
+    None
+}
+
 #[tauri::command]
 pub async fn cmd_scan_folders(
     state: State<'_, TelegramState>,
@@ -593,12 +650,11 @@ pub async fn cmd_scan_folders(
                 
                 log::debug!("[SCAN] Processing Channel: '{}' (ID: {})", name, id);
 
-                // Strategy 1: Title
-                if name.to_lowercase().contains("[td]") {
-                    log::info!(" -> MATCH via Title: {}", name);
-                    let display_name = name.replace(" [TD]", "").replace(" [td]", "").replace("[TD]", "").replace("[td]", "").trim().to_string();
-                    folders.push(FolderMetadata { id, name: display_name, parent_id: None });
-                    continue; 
+                // Strategy 1: Title — handles both "[TD]" (root) and "[TD:id]" (child)
+                if let Some((display_name, parent_id)) = parse_td_title(&name) {
+                    log::info!(" -> MATCH via Title: '{}' (parent: {:?})", name, parent_id);
+                    folders.push(FolderMetadata { id, name: display_name, parent_id });
+                    continue;
                 }
 
                 // Strategy 2: About
@@ -633,6 +689,66 @@ pub async fn cmd_scan_folders(
     
     log::info!("Scan complete. Found {} folders. Peer cache size: {}.", folders.len(), peer_cache.len());
     Ok(folders)
+}
+
+/// Returns the paths of all **immediate files** inside a directory.
+///
+/// Subdirectories are intentionally excluded — the caller is responsible for
+/// deciding how to handle nested folders.  Uses std::fs directly (same pattern
+/// as cmd_upload_file) so it is not limited by Tauri's fs capability scopes.
+#[tauri::command]
+pub fn cmd_list_dir_files(path: String) -> Result<Vec<String>, String> {
+    let entries = std::fs::read_dir(&path)
+        .map_err(|e| format!("Cannot read directory '{}': {}", path, e))?;
+
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let p = entry.path();
+        if p.is_file() {
+            files.push(p.to_string_lossy().to_string());
+        }
+    }
+    Ok(files)
+}
+
+/// Returns true if the given path is a directory on the local filesystem.
+///
+/// Uses std::path directly (same pattern as cmd_upload_file) so it works on
+/// any path without being limited by Tauri's fs capability permissions.
+#[tauri::command]
+pub fn cmd_is_directory(path: String) -> bool {
+    std::path::Path::new(&path).is_dir()
+}
+
+/// A single entry inside a directory — used by cmd_list_dir_entries.
+#[derive(serde::Serialize)]
+pub struct DirEntry {
+    pub path: String,
+    pub is_dir: bool,
+}
+
+/// Returns all **immediate** children of a directory with their type (file or
+/// sub-directory).  Symlinks are resolved: a symlink to a directory is
+/// reported as `is_dir: true`.
+///
+/// Unlike cmd_list_dir_files this returns *both* files and directories so the
+/// frontend can recurse into nested folders and build a full Telegram Drive
+/// hierarchy without additional round-trips for each level.
+#[tauri::command]
+pub fn cmd_list_dir_entries(path: String) -> Result<Vec<DirEntry>, String> {
+    let read = std::fs::read_dir(&path)
+        .map_err(|e| format!("Cannot read directory '{}': {}", path, e))?;
+    let mut entries = Vec::new();
+    for entry in read {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let p = entry.path();
+        entries.push(DirEntry {
+            is_dir: p.is_dir(), // resolves symlinks
+            path: p.to_string_lossy().to_string(),
+        });
+    }
+    Ok(entries)
 }
 
 /// Zip a folder's contents into a temp file and return the path.

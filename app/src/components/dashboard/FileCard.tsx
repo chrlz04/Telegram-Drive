@@ -30,22 +30,37 @@ function isImageFile(filename: string): boolean {
 export function FileCard({ file, onDelete, onDownload, onPreview, isSelected, onClick, onContextMenu, onDrop, onDragStart, onDragEnd, activeFolderId, height, onToggleSelection }: FileCardProps) {
     const isFolder = file.type === 'folder';
     const [isDragOver, setIsDragOver] = useState(false);
-    const [thumbnail, setThumbnail] = useState<string | null>(null);
+
+    // Store thumbnail together with the file ID it belongs to, so we can
+    // guard against stale async results being shown on the wrong card.
+    const [thumbnailEntry, setThumbnailEntry] = useState<{ fileId: number; url: string } | null>(null);
     const [thumbnailLoading, setThumbnailLoading] = useState(false);
+
+    // Derive the display thumbnail — only show if it actually belongs to the
+    // current file, protecting against race conditions and component reuse.
+    const thumbnail = thumbnailEntry?.fileId === file.id ? thumbnailEntry.url : null;
 
     // Lazy load thumbnail for image files
     useEffect(() => {
+        // Always clear the previous entry first so no stale image is shown
+        // while the new fetch is in-flight.
+        setThumbnailEntry(null);
+
         if (isFolder || !isImageFile(file.name)) return;
 
         let cancelled = false;
         setThumbnailLoading(true);
 
+        // Capture ID at scheduling time so the closure is unambiguous even if
+        // the component is reused with a different file before the fetch resolves.
+        const requestedFileId = file.id;
+
         invoke<string>('cmd_get_thumbnail', {
-            messageId: file.id,
+            messageId: requestedFileId,
             folderId: activeFolderId
         }).then((result) => {
             if (!cancelled && result) {
-                setThumbnail(result);
+                setThumbnailEntry({ fileId: requestedFileId, url: result });
             }
         }).catch(() => {
             // Silently fail - will show icon instead
@@ -105,6 +120,7 @@ export function FileCard({ file, onDelete, onDownload, onPreview, isSelected, on
                 {thumbnail ? (
                     <div className="absolute inset-0">
                         <img
+                            key={file.id}
                             src={thumbnail}
                             alt={file.name}
                             className="w-full h-full object-cover"

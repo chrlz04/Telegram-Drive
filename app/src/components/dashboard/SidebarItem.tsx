@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, FolderPlus } from 'lucide-react';
 
 interface SidebarItemProps {
     icon: React.ElementType;
@@ -8,6 +8,7 @@ interface SidebarItemProps {
     onClick: () => void;
     onDrop: (e: React.DragEvent) => void;
     onDelete?: () => void;
+    onAddChild?: () => void;
     folderId: number | null;
 }
 
@@ -17,7 +18,7 @@ interface SidebarItemProps {
  * With Tauri's dragDropEnabled: false, DOM events work reliably.
  * This component handles internal file moves via standard React drag events.
  */
-export function SidebarItem({ icon: Icon, label, active = false, onClick, onDrop, onDelete }: SidebarItemProps) {
+export function SidebarItem({ icon: Icon, label, active = false, onClick, onDrop, onDelete, onAddChild }: SidebarItemProps) {
     const [isOver, setIsOver] = useState(false);
 
     return (
@@ -65,6 +66,11 @@ export function SidebarItem({ icon: Icon, label, active = false, onClick, onDrop
         >
             <Icon className={`w-4 h-4 ${isOver ? 'text-telegram-primary' : ''}`} />
             <span className="flex-1 text-left truncate">{label}</span>
+            {onAddChild && (
+                <div onClick={(e) => { e.stopPropagation(); onAddChild(); }} className="opacity-0 group-hover:opacity-100 p-1 hover:text-telegram-primary" title="New subfolder">
+                    <FolderPlus className="w-3 h-3" />
+                </div>
+            )}
             {onDelete && (
                 <div onClick={(e) => { e.stopPropagation(); onDelete(); }} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400">
                     <Plus className="w-3 h-3 rotate-45" />

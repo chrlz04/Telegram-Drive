@@ -1,8 +1,141 @@
 import { useState } from 'react';
-import { HardDrive, Folder, Plus, RefreshCw, LogOut } from 'lucide-react';
+import { HardDrive, Folder, Plus, RefreshCw, LogOut, ChevronRight } from 'lucide-react';
 import { SidebarItem } from './SidebarItem';
 import { BandwidthWidget } from './BandwidthWidget';
 import { TelegramFolder, BandwidthStats } from '../../types';
+
+// ---------------------------------------------------------------------------
+// Tree helpers
+// ---------------------------------------------------------------------------
+
+interface FolderNode extends TelegramFolder {
+    children: FolderNode[];
+}
+
+function buildTree(folders: TelegramFolder[]): FolderNode[] {
+    const map = new Map<number, FolderNode>();
+    for (const f of folders) {
+        map.set(f.id, { ...f, children: [] });
+    }
+    const roots: FolderNode[] = [];
+    for (const node of map.values()) {
+        const pid = node.parent_id;
+        if (pid != null && map.has(pid)) {
+            map.get(pid)!.children.push(node);
+        } else {
+            roots.push(node);
+        }
+    }
+    return roots;
+}
+
+// ---------------------------------------------------------------------------
+// FolderTreeNode — recursive component for one folder + its subtree
+// ---------------------------------------------------------------------------
+
+interface FolderTreeNodeProps {
+    node: FolderNode;
+    depth: number;
+    activeFolderId: number | null;
+    setActiveFolderId: (id: number | null) => void;
+    onDrop: (e: React.DragEvent, folderId: number | null) => void;
+    onDelete: (id: number, name: string) => void;
+    onCreate: (name: string, parentId: number | null) => Promise<unknown>;
+}
+
+function FolderTreeNode({
+    node, depth, activeFolderId, setActiveFolderId, onDrop, onDelete, onCreate,
+}: FolderTreeNodeProps) {
+    const [expanded, setExpanded] = useState(true);
+    const [creating, setCreating] = useState(false);
+    const [newName, setNewName] = useState('');
+
+    const indentPx = depth * 12;
+    const hasChildren = node.children.length > 0;
+
+    const submitCreate = async () => {
+        if (!newName.trim()) { setCreating(false); return; }
+        try {
+            await onCreate(newName.trim(), node.id);
+            setNewName('');
+            setCreating(false);
+            setExpanded(true);
+        } catch {
+            // error toast is handled by useTelegramConnection
+        }
+    };
+
+    return (
+        <div>
+            {/* Row: indent + chevron + folder button */}
+            <div className="flex items-center gap-0.5" style={{ paddingLeft: `${indentPx}px` }}>
+                {/* Chevron — always reserve the space so items stay aligned */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+                    className={`w-5 h-5 flex-shrink-0 flex items-center justify-center rounded text-telegram-subtext hover:text-telegram-text transition-colors ${!hasChildren ? 'invisible pointer-events-none' : ''}`}
+                    tabIndex={hasChildren ? 0 : -1}
+                    title={expanded ? 'Collapse' : 'Expand'}
+                >
+                    <ChevronRight className={`w-3 h-3 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`} />
+                </button>
+
+                {/* Folder item fills the remaining width */}
+                <div className="flex-1 min-w-0">
+                    <SidebarItem
+                        icon={Folder}
+                        label={node.name}
+                        active={activeFolderId === node.id}
+                        onClick={() => setActiveFolderId(node.id)}
+                        onDrop={(e: React.DragEvent) => onDrop(e, node.id)}
+                        onDelete={() => onDelete(node.id, node.name)}
+                        onAddChild={() => { setCreating(true); setExpanded(true); }}
+                        folderId={node.id}
+                    />
+                </div>
+            </div>
+
+            {/* Children + inline subfolder creation input */}
+            {expanded && (
+                <div>
+                    {node.children.map(child => (
+                        <FolderTreeNode
+                            key={child.id}
+                            node={child}
+                            depth={depth + 1}
+                            activeFolderId={activeFolderId}
+                            setActiveFolderId={setActiveFolderId}
+                            onDrop={onDrop}
+                            onDelete={onDelete}
+                            onCreate={onCreate}
+                        />
+                    ))}
+
+                    {creating && (
+                        <div style={{ paddingLeft: `${indentPx + 12 + 20}px` }} className="pr-2 py-1">
+                            <input
+                                autoFocus
+                                type="text"
+                                className="w-full bg-white/10 rounded px-2 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-telegram-primary"
+                                placeholder="Subfolder name"
+                                value={newName}
+                                onChange={e => setNewName(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') submitCreate();
+                                    if (e.key === 'Escape') { setCreating(false); setNewName(''); }
+                                }}
+                                onBlur={() => { if (!newName.trim()) setCreating(false); }}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
 
 interface SidebarProps {
     folders: TelegramFolder[];
@@ -10,7 +143,7 @@ interface SidebarProps {
     setActiveFolderId: (id: number | null) => void;
     onDrop: (e: React.DragEvent, folderId: number | null) => void;
     onDelete: (id: number, name: string) => void;
-    onCreate: (name: string) => Promise<void>;
+    onCreate: (name: string, parentId: number | null) => Promise<unknown>;
     isSyncing: boolean;
     isConnected: boolean;
     onSync: () => void;
@@ -23,18 +156,20 @@ export function Sidebar({
     isSyncing, isConnected, onSync, onLogout, bandwidth
 }: SidebarProps) {
     const [showNewFolderInput, setShowNewFolderInput] = useState(false);
-    const [newFolderName, setNewFolderName] = useState("");
+    const [newFolderName, setNewFolderName] = useState('');
+
+    const tree = buildTree(folders);
 
     const submitCreate = async () => {
         if (!newFolderName.trim()) return;
         try {
-            await onCreate(newFolderName);
-            setNewFolderName("");
+            await onCreate(newFolderName.trim(), null); // null = root folder
+            setNewFolderName('');
             setShowNewFolderInput(false);
         } catch {
             // handled by parent
         }
-    }
+    };
 
     return (
         <aside className="w-64 bg-telegram-surface border-r border-telegram-border flex flex-col" onClick={e => e.stopPropagation()}>
@@ -43,7 +178,7 @@ export function Sidebar({
                 <span className="font-bold text-lg text-telegram-text tracking-tight">Telegram Drive</span>
             </div>
 
-            {/* Scrollable folder list */}
+            {/* Scrollable folder tree */}
             <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto min-h-0">
                 <SidebarItem
                     icon={HardDrive}
@@ -53,21 +188,21 @@ export function Sidebar({
                     onDrop={(e: React.DragEvent) => onDrop(e, null)}
                     folderId={null}
                 />
-                {folders.map(folder => (
-                    <SidebarItem
-                        key={folder.id}
-                        icon={Folder}
-                        label={folder.name}
-                        active={activeFolderId === folder.id}
-                        onClick={() => setActiveFolderId(folder.id)}
-                        onDrop={(e: React.DragEvent) => onDrop(e, folder.id)}
-                        onDelete={() => onDelete(folder.id, folder.name)}
-                        folderId={folder.id}
+                {tree.map(node => (
+                    <FolderTreeNode
+                        key={node.id}
+                        node={node}
+                        depth={0}
+                        activeFolderId={activeFolderId}
+                        setActiveFolderId={setActiveFolderId}
+                        onDrop={onDrop}
+                        onDelete={onDelete}
+                        onCreate={onCreate}
                     />
                 ))}
             </nav>
 
-            {/* Sticky Create Folder section — always visible above the footer */}
+            {/* Sticky Create Root Folder section */}
             <div className="px-2 pb-2 border-b border-telegram-border">
                 {showNewFolderInput ? (
                     <div className="px-3 py-2">
@@ -75,7 +210,7 @@ export function Sidebar({
                             autoFocus
                             type="text"
                             className="w-full bg-white/10 rounded px-2 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-telegram-primary"
-                            placeholder="Folder Name"
+                            placeholder="Folder name"
                             value={newFolderName}
                             onChange={e => setNewFolderName(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && submitCreate()}
@@ -121,7 +256,6 @@ export function Sidebar({
 
                 {bandwidth && <BandwidthWidget bandwidth={bandwidth} />}
             </div>
-
         </aside>
-    )
+    );
 }

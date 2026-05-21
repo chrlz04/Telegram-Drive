@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, RotateCcw, Download, Upload, Trash2, HardDrive, Globe, Key, Copy, Check, RefreshCw, FolderArchive } from 'lucide-react';
+import { X, RotateCcw, Download, Upload, Trash2, HardDrive, Globe, Key, Copy, Check, RefreshCw, FolderArchive, PanelLeft, RectangleHorizontal } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
@@ -163,6 +163,36 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                         {/* Body */}
                         <div className="px-5 py-4 space-y-6 max-h-[70vh] overflow-y-auto">
+
+                                {/* Appearance Section */}
+                            <section className="space-y-3">
+                                <h3 className="text-xs font-semibold text-telegram-subtext uppercase tracking-wider flex items-center gap-2">
+                                    <RectangleHorizontal className="w-3.5 h-3.5" />
+                                    Appearance
+                                </h3>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => updateSetting('navbarStyle', 'sidebar')}
+                                        className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${settings.navbarStyle === 'sidebar' ? 'border-telegram-primary bg-telegram-primary/10' : 'border-telegram-border bg-telegram-hover/50 hover:border-telegram-primary/40'}`}
+                                    >
+                                        <PanelLeft className={`w-5 h-5 ${settings.navbarStyle === 'sidebar' ? 'text-telegram-primary' : 'text-telegram-subtext'}`} />
+                                        <div className="text-center">
+                                            <p className={`text-xs font-medium ${settings.navbarStyle === 'sidebar' ? 'text-telegram-primary' : 'text-telegram-text'}`}>Sidebar</p>
+                                            <p className="text-[10px] text-telegram-subtext mt-0.5">Fixed left panel</p>
+                                        </div>
+                                    </button>
+                                    <button
+                                        onClick={() => updateSetting('navbarStyle', 'floating-pill')}
+                                        className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${settings.navbarStyle === 'floating-pill' ? 'border-telegram-primary bg-telegram-primary/10' : 'border-telegram-border bg-telegram-hover/50 hover:border-telegram-primary/40'}`}
+                                    >
+                                        <RectangleHorizontal className={`w-5 h-5 ${settings.navbarStyle === 'floating-pill' ? 'text-telegram-primary' : 'text-telegram-subtext'}`} />
+                                        <div className="text-center">
+                                            <p className={`text-xs font-medium ${settings.navbarStyle === 'floating-pill' ? 'text-telegram-primary' : 'text-telegram-text'}`}>Floating Pill</p>
+                                            <p className="text-[10px] text-telegram-subtext mt-0.5">Centered top bar</p>
+                                        </div>
+                                    </button>
+                                </div>
+                            </section>
 
                             {/* Transfers Section */}
                             <section className="space-y-3">

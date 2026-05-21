@@ -1,8 +1,15 @@
-import { HardDrive, LayoutGrid, Sun, Moon, Settings } from 'lucide-react';
+import { Fragment } from 'react';
+import { HardDrive, LayoutGrid, Sun, Moon, Settings, ChevronRight } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 
+export interface BreadcrumbSegment {
+    id: number | null;
+    name: string;
+}
+
 interface TopBarProps {
-    currentFolderName: string;
+    folderPath: BreadcrumbSegment[];
+    onNavigate: (id: number | null) => void;
     selectedIds: number[];
     onShowMoveModal: () => void;
     onBulkDownload: () => void;
@@ -16,19 +23,37 @@ interface TopBarProps {
 }
 
 export function TopBar({
-    currentFolderName, selectedIds, onShowMoveModal, onBulkDownload, onBulkDelete,
+    folderPath, onNavigate, selectedIds, onShowMoveModal, onBulkDownload, onBulkDelete,
     onDownloadFolder, viewMode, setViewMode, searchTerm, onSearchChange, onSettingsClick
 }: TopBarProps) {
     const { theme, toggleTheme } = useTheme();
-
     return (
         <header className="h-14 border-b border-telegram-border flex items-center px-4 justify-between bg-telegram-surface/80 backdrop-blur-md sticky top-0 z-10" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-4">
-                <div className="flex items-center text-sm breadcrumbs text-telegram-subtext select-none">
-                    <span className="hover:text-telegram-text cursor-pointer transition-colors">Start</span>
-                    <span className="mx-2">/</span>
-                    <span className="text-telegram-text font-medium">{currentFolderName}</span>
-                </div>
+            <div className="flex items-center gap-4 min-w-0">
+                <nav className="flex items-center text-sm text-telegram-subtext select-none min-w-0" aria-label="Breadcrumb">
+                    {folderPath.map((seg, i) => {
+                        const isLast = i === folderPath.length - 1;
+                        return (
+                            <Fragment key={seg.id ?? 'root'}>
+                                {i > 0 && (
+                                    <ChevronRight className="w-3.5 h-3.5 mx-1 flex-shrink-0 opacity-40" />
+                                )}
+                                {isLast ? (
+                                    <span className="text-telegram-text font-medium truncate max-w-[160px]">
+                                        {seg.name}
+                                    </span>
+                                ) : (
+                                    <button
+                                        onClick={() => onNavigate(seg.id)}
+                                        className="hover:text-telegram-text transition-colors truncate max-w-[120px] flex-shrink-0"
+                                    >
+                                        {seg.name}
+                                    </button>
+                                )}
+                            </Fragment>
+                        );
+                    })}
+                </nav>
             </div>
 
             <div className="flex-1 max-w-md mx-4">
