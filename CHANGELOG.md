@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.5.0] - 2026-05-21
+
+### Features
+
+- **Nested Folders**: Added support for creating subfolders inside folders. Channels now encode their parent ID in the title, and the sidebar has been completely rewritten to support a recursive tree view with indentation, expand/collapse functionality, and inline subfolder creation.
+- **Recursive OS Drag-and-Drop**: Upgraded drag-and-drop to support dropping whole directories from the OS (Explorer/Finder). The app will now automatically create a nested Telegram channel for each directory and queue files appropriately up to a depth of 20.
+- **Floating Pill Navigation & Custom Window Chrome**: Replaced the native OS title bar with a custom frameless window. Added a new "Floating Pill" navigation bar as an alternative to the sidebar (configurable in Settings), and a fully functional Address Bar / Breadcrumb to navigate up the folder tree.
+- **DOCX Previews**: Added native viewing for `.docx` files using mammoth.js, featuring the same clean zoomable UI as the PDF viewer.
+
+### Bug Fixes
+
+- Fixed `FILE_PARTS_INVALID` error when trying to upload 0-byte (empty) files.
+- Fixed a bug where a dropped folder's contents would mistakenly appear in the current main folder before being sorted.
+- Fixed a ghost listener from an async cleanup race in `useFileDrop` that caused main folder files to double up after a drop event.
+- Fixed an issue where dropped nested folders were only being uploaded one level deep.
+- Fixed React stale state bug where an old thumbnail image could momentarily flash on a new file card.
+- Fixed a Rust cache key collision bug where thumbnails were cached by `message_id` alone, which caused the wrong image to appear for identical message IDs in different folders. Fixed by scoping the cache key to `{folder_key}_{message_id}`.
+- Fixed scroll padding in the File Explorer when the Floating Pill navigation is active to prevent content from hiding behind the nav.
+
+---
+
 ## [1.1.7] - 2026-05-01
 
 ### Feature
