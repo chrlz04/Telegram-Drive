@@ -31,17 +31,18 @@ Telegram Drive leverages the Telegram API to allow you to upload, organize, and 
 *   **High Performance Grid**: Virtual scrolling handles folders with thousands of files instantly.
 *   **Auto-Updates**: Seamless updates for Windows, macOS, and Linux.
 *   **Media Streaming**: Stream video and audio files directly without downloading.
-*   **PDF Viewer:** Built-in PDF support with infinite scrolling for seamless document reading.
-*   **Drag & Drop**: Intuitive drag-and-drop upload and file management.
+*   **Document Viewers:** Built-in PDF and **DOCX** preview support for seamless document reading.
+*   **Drag & Drop**: Native OS drag-and-drop support for files and recursively uploading entire nested folders.
 *   **Thumbnail Previews**: Inline thumbnails for images and media files.
-*   **Folder Management**: Create "Folders" (private Telegram Channels) to organize content.
+*   **Folder Management**: Create nested "Folders" (private Telegram Channels) to organize content hierarchically.
+*   **Navigation**: Beautiful custom Window Chrome, dynamic Floating Pill or Sidebar Navigation, and full breadcrumb support.
 *   **REST API for AI Integration**: Secure local API (off by default) with configurable port and API key auth. OpenAPI spec for seamless LLM and tool integration.
 *   **Privacy Focused**: API keys and data stay local. No third-party servers.
 *   **Cross-Platform**: Native apps for macOS (Intel/ARM), Windows, and Linux.
 
 ##  Screenshots
 
-| Dashboard | File Preview |
+| Dashboard (Pill Nav) | File Preview |
 |-----------|--------------|
 | ![Dashboard](screenshots/DashboardWithFiles.png) | ![Preview](screenshots/ImagePreview.png) |
 
@@ -53,17 +54,17 @@ Telegram Drive leverages the Telegram API to allow you to upload, organize, and 
 |----------------|----------------|
 | ![Audio Playback](screenshots/AudioPlayback.png) | ![Video Playback](screenshots/VideoPlayback.png) |
 
-| Auth Code Screen | Upload Example |
+| Auth Code Screen | Upload Example (Drag & Drop) |
 |------------------|-------------|
 | ![Auth Code Screen](screenshots/AuthCodeScreen.png) | ![Upload Example](screenshots/UploadExample.png) |
 
-| Folder Creation | Folder List View |
+| Folder Creation (Nested) | Document Preview (DOCX/PDF) |
 |-----------------|------------------|
 | ![Folder Creation](screenshots/FolderCreation.png) | ![Folder List View](screenshots/FolderListView.png) |
 
 ##  Tech Stack
 
-*   **Frontend**: React, TypeScript, TailwindCSS, Framer Motion
+*   **Frontend**: React, TypeScript, TailwindCSS, Framer Motion, mammoth.js
 *   **Backend**: Rust (Tauri), Grammers (Telegram Client)
 *   **Build Tool**: Vite
 
