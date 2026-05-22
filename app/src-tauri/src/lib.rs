@@ -177,6 +177,8 @@ pub fn run() {
             commands::cmd_move_files,
             commands::cmd_create_folder,
             commands::cmd_delete_folder,
+            commands::cmd_rename_folder,
+            commands::cmd_rename_file,
             commands::cmd_get_bandwidth,
             commands::cmd_get_preview,
             commands::cmd_logout,

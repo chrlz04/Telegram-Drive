@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { HardDrive, Folder, Plus, RefreshCw, LogOut, ChevronRight } from 'lucide-react';
+import { HardDrive, Folder, Plus, RefreshCw, LogOut, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TelegramFolder, BandwidthStats } from '../../types';
 import { formatBytes } from '../../utils';
@@ -28,34 +28,148 @@ function buildTree(folders: TelegramFolder[]): FolderNode[] {
 // Recursive folder tree item for the dropdown panel
 // ---------------------------------------------------------------------------
 
-function FolderTreeItem({ node, depth, activeFolderId, setActiveFolderId, onClose }: {
+function FolderTreeItem({ node, depth, activeFolderId, setActiveFolderId, onClose, onDelete, onRename }: {
     node: FolderNode;
     depth: number;
     activeFolderId: number | null;
     setActiveFolderId: (id: number | null) => void;
     onClose: () => void;
+    onDelete?: (id: number, name: string) => void;
+    onRename?: (id: number, newName: string, parentId: number | null) => void;
 }) {
     const [expanded, setExpanded] = useState(true);
+    const [renaming, setRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState('');
+    const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+    const ctxRef = useRef<HTMLDivElement>(null);
     const isActive = activeFolderId === node.id;
+
+    useEffect(() => {
+        if (!ctxMenu) return;
+        const handleMouseDown = (e: MouseEvent) => {
+            if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxMenu(null);
+        };
+        const handleContextMenu = (e: MouseEvent) => {
+            if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxMenu(null);
+        };
+        const handleResize = () => setCtxMenu(null);
+        document.addEventListener('mousedown', handleMouseDown);
+        document.addEventListener('contextmenu', handleContextMenu);
+        window.addEventListener('resize', handleResize);
+        return () => {
+            document.removeEventListener('mousedown', handleMouseDown);
+            document.removeEventListener('contextmenu', handleContextMenu);
+            window.removeEventListener('resize', handleResize);
+        };
+    }, [ctxMenu]);
+
+    const submitRename = () => {
+        const trimmed = renameValue.trim();
+        if (trimmed && trimmed !== node.name && onRename) {
+            onRename(node.id, trimmed, node.parent_id);
+        }
+        setRenaming(false);
+        setRenameValue('');
+    };
 
     return (
         <div>
-            <button
-                onClick={() => { setActiveFolderId(node.id); onClose(); }}
-                style={{ paddingLeft: `${12 + depth * 16}px` }}
-                className={`w-full flex items-center gap-2 py-1.5 pr-2 text-sm rounded-md transition-colors ${isActive ? 'bg-telegram-primary/20 text-telegram-primary' : 'text-telegram-subtext hover:bg-telegram-hover hover:text-telegram-text'}`}
+            <div
+                className="group relative"
+                onContextMenu={(e) => {
+                    if (onDelete || onRename) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setCtxMenu({ x: e.clientX, y: e.clientY });
+                    }
+                }}
             >
-                {node.children.length > 0 ? (
-                    <ChevronRight
-                        className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
-                        onClick={e => { e.stopPropagation(); setExpanded(v => !v); }}
-                    />
+                {renaming ? (
+                    <div style={{ paddingLeft: `${12 + depth * 16}px` }} className="pr-2 py-1">
+                        <input
+                            autoFocus
+                            className="w-full bg-white/10 rounded px-2 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-telegram-primary"
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') submitRename();
+                                if (e.key === 'Escape') { setRenaming(false); setRenameValue(''); }
+                            }}
+                            onBlur={() => { setRenaming(false); setRenameValue(''); }}
+                        />
+                    </div>
                 ) : (
-                    <span className="w-3.5 flex-shrink-0" />
+                    <button
+                        onClick={() => { setActiveFolderId(node.id); onClose(); }}
+                        style={{ paddingLeft: `${12 + depth * 16}px` }}
+                        className={`w-full flex items-center gap-2 py-1.5 pr-2 text-sm rounded-md transition-colors ${isActive ? 'bg-telegram-primary/20 text-telegram-primary' : 'text-telegram-subtext hover:bg-telegram-hover hover:text-telegram-text'}`}
+                    >
+                        {node.children.length > 0 ? (
+                            <ChevronRight
+                                className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+                                onClick={e => { e.stopPropagation(); setExpanded(v => !v); }}
+                            />
+                        ) : (
+                            <span className="w-3.5 flex-shrink-0" />
+                        )}
+                        <Folder className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="flex-1 truncate text-left">{node.name}</span>
+
+                        {/* Hover action buttons */}
+                        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0">
+                            {onRename && (
+                                <div
+                                    onClick={e => { e.stopPropagation(); setRenameValue(node.name); setRenaming(true); }}
+                                    className="p-0.5 hover:text-telegram-primary rounded"
+                                    title="Rename"
+                                >
+                                    <Pencil className="w-3 h-3" />
+                                </div>
+                            )}
+                            {onDelete && (
+                                <div
+                                    onClick={e => { e.stopPropagation(); onDelete(node.id, node.name); }}
+                                    className="p-0.5 hover:text-red-400 rounded"
+                                    title="Delete"
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                </div>
+                            )}
+                        </div>
+                    </button>
                 )}
-                <Folder className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">{node.name}</span>
-            </button>
+            </div>
+
+            {/* Context menu */}
+            {ctxMenu && (
+                <div
+                    ref={ctxRef}
+                    className="fixed z-[60] min-w-[150px] bg-telegram-surface/95 backdrop-blur-xl border border-telegram-border rounded-lg shadow-2xl p-1.5 flex flex-col gap-0.5"
+                    style={{ left: ctxMenu.x, top: ctxMenu.y }}
+                    onClick={e => e.stopPropagation()}
+                    onContextMenu={e => e.preventDefault()}
+                >
+                    {onRename && (
+                        <button
+                            onClick={() => { setRenameValue(node.name); setRenaming(true); setCtxMenu(null); }}
+                            className="flex items-center gap-2 px-2 py-1.5 text-sm text-telegram-text hover:bg-telegram-hover rounded transition-colors text-left w-full"
+                        >
+                            <Pencil className="w-4 h-4 text-telegram-primary" />
+                            Rename
+                        </button>
+                    )}
+                    {onDelete && (
+                        <button
+                            onClick={() => { onDelete(node.id, node.name); setCtxMenu(null); }}
+                            className="flex items-center gap-2 px-2 py-1.5 text-sm text-red-500 hover:bg-red-500/10 rounded transition-colors text-left w-full"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                        </button>
+                    )}
+                </div>
+            )}
+
             {expanded && node.children.map(child => (
                 <FolderTreeItem
                     key={child.id}
@@ -64,6 +178,8 @@ function FolderTreeItem({ node, depth, activeFolderId, setActiveFolderId, onClos
                     activeFolderId={activeFolderId}
                     setActiveFolderId={setActiveFolderId}
                     onClose={onClose}
+                    onDelete={onDelete}
+                    onRename={onRename}
                 />
             ))}
         </div>
@@ -116,12 +232,14 @@ export interface FloatingPillNavProps {
     onSync: () => void;
     onLogout: () => void;
     onCreate: (name: string, parentId: number | null) => Promise<unknown>;
+    onDelete: (id: number, name: string) => void;
+    onRename: (id: number, newName: string, parentId: number | null) => void;
     bandwidth: BandwidthStats | null;
 }
 
 export function FloatingPillNav({
     folders, activeFolderId, setActiveFolderId, isConnected, isSyncing,
-    onSync, onLogout, onCreate, bandwidth,
+    onSync, onLogout, onCreate, onDelete, onRename, bandwidth,
 }: FloatingPillNavProps) {
     const [showFolderPanel, setShowFolderPanel] = useState(false);
     const [showNewFolder, setShowNewFolder] = useState(false);
@@ -278,6 +396,8 @@ export function FloatingPillNav({
                                     activeFolderId={activeFolderId}
                                     setActiveFolderId={setActiveFolderId}
                                     onClose={() => setShowFolderPanel(false)}
+                                    onDelete={onDelete}
+                                    onRename={onRename}
                                 />
                             ))}
                             {tree.length === 0 && (

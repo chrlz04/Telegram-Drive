@@ -36,7 +36,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const {
         store, folders, activeFolderId, setActiveFolderId, isSyncing, isConnected,
-        handleLogout, handleSyncFolders, handleCreateFolder, handleFolderDelete
+        handleLogout, handleSyncFolders, handleCreateFolder, handleFolderDelete, handleRenameFolder
     } = useTelegramConnection(onLogout);
 
 
@@ -91,6 +91,16 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         handleBulkMove, handleDownloadFolder, handleGlobalSearch
 
     } = useFileOperations(activeFolderId, selectedIds, setSelectedIds, displayedFiles);
+
+    const handleRenameFile = async (messageId: number, newName: string) => {
+        try {
+            await invoke('cmd_rename_file', { messageId, folderId: activeFolderId, newName });
+            queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
+            toast.success(`Renamed to "${newName}".`);
+        } catch (e) {
+            toast.error(`Rename failed: ${e}`);
+        }
+    };
 
     const { uploadQueue, setUploadQueue, handleManualUpload, handleFolderUpload, cancelAll: cancelUploads, cancelItem: cancelUploadItem, retryItem: retryUploadItem, isDragging } = useFileUpload(activeFolderId, store, handleCreateFolder);
     const { downloadQueue, queueDownload, clearFinished: clearDownloads, cancelAll: cancelDownloads, cancelItem: cancelDownloadItem, retryItem: retryDownloadItem } = useFileDownload(store);
@@ -433,6 +443,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onSync={handleSyncFolders}
                     onLogout={handleLogout}
                     onCreate={handleCreateFolder}
+                    onDelete={handleFolderDelete}
+                    onRename={handleRenameFolder}
                     bandwidth={bandwidth || null}
                 />
             ) : (
@@ -443,6 +455,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onDrop={handleDropOnFolder}
                     onDelete={handleFolderDelete}
                     onCreate={handleCreateFolder}
+                    onRename={handleRenameFolder}
                     isSyncing={isSyncing}
                     isConnected={isConnected}
                     onSync={handleSyncFolders}
@@ -496,6 +509,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onDrop={handleDropOnFolder}
                     onDragStart={(fileId) => setInternalDragFileId(fileId)}
                     onDragEnd={() => setTimeout(() => setInternalDragFileId(null), 50)}
+                    onRename={(fileId, newName) => {
+                        const asFolder = folders.find(f => f.id === fileId);
+                        if (asFolder) {
+                            handleRenameFolder(fileId, newName, asFolder.parent_id ?? null);
+                        } else {
+                            handleRenameFile(fileId, newName);
+                        }
+                    }}
                 />
             </main>
 

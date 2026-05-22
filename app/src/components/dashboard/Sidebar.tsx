@@ -41,14 +41,17 @@ interface FolderTreeNodeProps {
     onDrop: (e: React.DragEvent, folderId: number | null) => void;
     onDelete: (id: number, name: string) => void;
     onCreate: (name: string, parentId: number | null) => Promise<unknown>;
+    onRename: (id: number, newName: string, parentId: number | null) => void;
 }
 
 function FolderTreeNode({
-    node, depth, activeFolderId, setActiveFolderId, onDrop, onDelete, onCreate,
+    node, depth, activeFolderId, setActiveFolderId, onDrop, onDelete, onCreate, onRename,
 }: FolderTreeNodeProps) {
     const [expanded, setExpanded] = useState(true);
     const [creating, setCreating] = useState(false);
     const [newName, setNewName] = useState('');
+    const [renaming, setRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState('');
 
     const indentPx = depth * 12;
     const hasChildren = node.children.length > 0;
@@ -63,6 +66,15 @@ function FolderTreeNode({
         } catch {
             // error toast is handled by useTelegramConnection
         }
+    };
+
+    const submitRename = () => {
+        const trimmed = renameValue.trim();
+        if (trimmed && trimmed !== node.name) {
+            onRename(node.id, trimmed, node.parent_id);
+        }
+        setRenaming(false);
+        setRenameValue('');
     };
 
     return (
@@ -81,16 +93,32 @@ function FolderTreeNode({
 
                 {/* Folder item fills the remaining width */}
                 <div className="flex-1 min-w-0">
-                    <SidebarItem
-                        icon={Folder}
-                        label={node.name}
-                        active={activeFolderId === node.id}
-                        onClick={() => setActiveFolderId(node.id)}
-                        onDrop={(e: React.DragEvent) => onDrop(e, node.id)}
-                        onDelete={() => onDelete(node.id, node.name)}
-                        onAddChild={() => { setCreating(true); setExpanded(true); }}
-                        folderId={node.id}
-                    />
+                    {renaming ? (
+                        <input
+                            autoFocus
+                            type="text"
+                            className="w-full bg-white/10 rounded px-2 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-telegram-primary"
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') submitRename();
+                                if (e.key === 'Escape') { setRenaming(false); setRenameValue(''); }
+                            }}
+                            onBlur={() => { setRenaming(false); setRenameValue(''); }}
+                        />
+                    ) : (
+                        <SidebarItem
+                            icon={Folder}
+                            label={node.name}
+                            active={activeFolderId === node.id}
+                            onClick={() => setActiveFolderId(node.id)}
+                            onDrop={(e: React.DragEvent) => onDrop(e, node.id)}
+                            onDelete={() => onDelete(node.id, node.name)}
+                            onAddChild={() => { setCreating(true); setExpanded(true); }}
+                            onRename={() => { setRenameValue(node.name); setRenaming(true); }}
+                            folderId={node.id}
+                        />
+                    )}
                 </div>
             </div>
 
@@ -107,6 +135,7 @@ function FolderTreeNode({
                             onDrop={onDrop}
                             onDelete={onDelete}
                             onCreate={onCreate}
+                            onRename={onRename}
                         />
                     ))}
 
@@ -144,6 +173,7 @@ interface SidebarProps {
     onDrop: (e: React.DragEvent, folderId: number | null) => void;
     onDelete: (id: number, name: string) => void;
     onCreate: (name: string, parentId: number | null) => Promise<unknown>;
+    onRename: (id: number, newName: string, parentId: number | null) => void;
     isSyncing: boolean;
     isConnected: boolean;
     onSync: () => void;
@@ -152,7 +182,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-    folders, activeFolderId, setActiveFolderId, onDrop, onDelete, onCreate,
+    folders, activeFolderId, setActiveFolderId, onDrop, onDelete, onCreate, onRename,
     isSyncing, isConnected, onSync, onLogout, bandwidth
 }: SidebarProps) {
     const [showNewFolderInput, setShowNewFolderInput] = useState(false);
@@ -198,6 +228,7 @@ export function Sidebar({
                         onDrop={onDrop}
                         onDelete={onDelete}
                         onCreate={onCreate}
+                        onRename={onRename}
                     />
                 ))}
             </nav>

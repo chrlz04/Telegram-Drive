@@ -117,6 +117,51 @@ pub async fn cmd_delete_folder(
 }
 
 
+#[tauri::command]
+pub async fn cmd_rename_folder(
+    folder_id: i64,
+    new_name: String,
+    parent_id: Option<i64>,
+    state: State<'_, TelegramState>,
+) -> Result<FolderMetadata, String> {
+    let client_opt = {
+        state.client.lock().await.clone()
+    };
+
+    if client_opt.is_none() {
+        log::info!("[MOCK] Renamed folder ID {} to '{}'", folder_id, new_name);
+        return Ok(FolderMetadata { id: folder_id, name: new_name, parent_id });
+    }
+
+    let client = client_opt.unwrap();
+    log::info!("Renaming folder/channel {} to '{}'", folder_id, new_name);
+
+    let peer = resolve_peer(&client, Some(folder_id), &state.peer_cache).await?;
+
+    let input_channel = match peer {
+        Peer::Channel(c) => {
+            let chan = &c.raw;
+            tl::enums::InputChannel::Channel(tl::types::InputChannel {
+                channel_id: chan.id,
+                access_hash: chan.access_hash.ok_or("No access hash for channel")?,
+            })
+        },
+        _ => return Err("Only channels (folders) can be renamed.".to_string()),
+    };
+
+    let title = match parent_id {
+        Some(pid) => format!("{} [TD:{}]", new_name, pid),
+        None      => format!("{} [TD]", new_name),
+    };
+
+    client.invoke(&tl::functions::channels::EditTitle {
+        channel: input_channel,
+        title,
+    }).await.map_err(map_error)?;
+
+    Ok(FolderMetadata { id: folder_id, name: new_name, parent_id })
+}
+
 #[derive(Clone, serde::Serialize)]
 struct ProgressPayload {
     id: String,
@@ -334,6 +379,41 @@ pub async fn cmd_delete_file(
 }
 
 #[tauri::command]
+pub async fn cmd_rename_file(
+    message_id: i32,
+    folder_id: Option<i64>,
+    new_name: String,
+    state: State<'_, TelegramState>,
+) -> Result<(), String> {
+    let client_opt = { state.client.lock().await.clone() };
+    if client_opt.is_none() {
+        log::info!("[MOCK] Renamed file {} to '{}'", message_id, new_name);
+        return Ok(());
+    }
+    let client = client_opt.unwrap();
+    log::info!("Renaming file {} in folder {:?} to '{}'", message_id, folder_id, new_name);
+
+    let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
+    let messages = client
+        .get_messages_by_id(&peer, &[message_id])
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let msg = messages
+        .into_iter()
+        .flatten()
+        .next()
+        .ok_or("Message not found")?;
+
+    // Edit the caption — Telegram preserves the existing media attachment.
+    msg.edit(InputMessage::new().text(&new_name))
+        .await
+        .map_err(map_error)?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn cmd_download_file(
     message_id: i32,
     save_path: String,
@@ -478,7 +558,7 @@ pub async fn cmd_get_files(
     let mut msgs = client.iter_messages(&peer);
     while let Some(msg) = msgs.next().await.map_err(|e| e.to_string())? {
         if let Some(doc) = msg.media() {
-            let (name, size, mime, ext) = match doc {
+            let (doc_name, size, mime, ext) = match doc {
                 Media::Document(d) => {
                     let n = d.name().to_string();
                     let s = d.size();
@@ -489,8 +569,11 @@ pub async fn cmd_get_files(
                 Media::Photo(_) => ("Photo.jpg".to_string(), 0, Some("image/jpeg".into()), Some("jpg".into())),
                 _ => ("Unknown".to_string(), 0, None, None),
             };
+            // Prefer the message caption as display name (set by rename); fall back to document filename.
+            let caption = msg.text();
+            let display_name = if caption.is_empty() { doc_name } else { caption.to_string() };
             files.push(FileMetadata {
-                id: msg.id() as i64, folder_id, name, size: size as u64, mime_type: mime, file_ext: ext, created_at: msg.date().to_string(), icon_type: "file".into()
+                id: msg.id() as i64, folder_id, name: display_name, size: size as u64, mime_type: mime, file_ext: ext, created_at: msg.date().to_string(), icon_type: "file".into()
             });
         }
     }

@@ -30,6 +30,7 @@ interface FileExplorerProps {
     onDrop?: (e: React.DragEvent, folderId: number) => void;
     onDragStart?: (fileId: number) => void;
     onDragEnd?: () => void;
+    onRename?: (fileId: number, newName: string) => void;
 }
 
 
@@ -61,7 +62,7 @@ function useGridColumns(containerRef: React.RefObject<HTMLDivElement | null>) {
 
 export function FileExplorer({
     files, loading, error, viewMode, selectedIds, activeFolderId,
-    onFileClick, onDelete, onDownload, onPreview, onManualUpload, onFolderUpload, showFolderUpload, onSelectionClear, onToggleSelection, onDrop, onDragStart, onDragEnd
+    onFileClick, onDelete, onDownload, onPreview, onManualUpload, onFolderUpload, showFolderUpload, onSelectionClear, onToggleSelection, onDrop, onDragStart, onDragEnd, onRename
 }: FileExplorerProps) {
     const { settings } = useSettings();
     const scrollPb = settings.navbarStyle === 'floating-pill' ? '80px' : undefined;
@@ -69,6 +70,8 @@ export function FileExplorer({
     const [sortField, setSortField] = useState<SortField>('name');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: TelegramFile } | null>(null);
+    const [renameTarget, setRenameTarget] = useState<{ id: number; name: string } | null>(null);
+    const [renameValue, setRenameValue] = useState('');
 
     const parentRef = useRef<HTMLDivElement>(null);
     const { columns, containerWidth } = useGridColumns(parentRef);
@@ -392,7 +395,58 @@ export function FileExplorer({
                         }
                         setContextMenu(null);
                     }}
+                    onRename={onRename ? () => {
+                        setRenameTarget({ id: contextMenu.file.id, name: contextMenu.file.name });
+                        setRenameValue(contextMenu.file.name);
+                        setContextMenu(null);
+                    } : undefined}
                 />
+            )}
+
+            {renameTarget && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                    onClick={() => setRenameTarget(null)}
+                >
+                    <div
+                        className="bg-telegram-surface border border-telegram-border rounded-xl p-5 w-80 shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 className="text-sm font-semibold text-telegram-text mb-3">Rename Folder</h3>
+                        <input
+                            autoFocus
+                            className="w-full bg-telegram-bg border border-telegram-border rounded-lg px-3 py-2 text-sm text-telegram-text outline-none focus:border-telegram-primary transition-colors"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && renameValue.trim() && renameValue.trim() !== renameTarget.name) {
+                                    onRename!(renameTarget.id, renameValue.trim());
+                                    setRenameTarget(null);
+                                } else if (e.key === 'Escape') {
+                                    setRenameTarget(null);
+                                }
+                            }}
+                        />
+                        <div className="flex gap-2 mt-4 justify-end">
+                            <button
+                                className="px-3 py-1.5 text-sm text-telegram-subtext hover:bg-telegram-hover rounded-lg transition-colors"
+                                onClick={() => setRenameTarget(null)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="px-3 py-1.5 text-sm bg-telegram-primary text-white rounded-lg hover:bg-telegram-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={!renameValue.trim() || renameValue.trim() === renameTarget.name}
+                                onClick={() => {
+                                    onRename!(renameTarget.id, renameValue.trim());
+                                    setRenameTarget(null);
+                                }}
+                            >
+                                Rename
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     )

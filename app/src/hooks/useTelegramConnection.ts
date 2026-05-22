@@ -180,6 +180,16 @@ export function useTelegramConnection(onLogoutParent: () => void) {
     };
 
 
+    const handleRenameFolder = async (folderId: number, newName: string, parentId: number | null): Promise<void> => {
+        if (!store) throw new Error('Store not ready');
+        const updated_folder = await invoke<TelegramFolder>('cmd_rename_folder', { folderId, newName, parentId });
+        const updated = folders.map(f => f.id === folderId ? updated_folder : f);
+        setFolders(updated);
+        await store.set('folders', updated);
+        await store.save();
+        toast.success(`Folder renamed to "${newName}".`);
+    };
+
     const handleSetActiveFolderId = async (id: number | null) => {
         setActiveFolderId(id);
         if (store) {
@@ -199,6 +209,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         handleSyncFolders,
         handleCreateFolder,
         handleFolderDelete,
+        handleRenameFolder,
         isNetworkError,
         forceLogout
     };
