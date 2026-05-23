@@ -520,7 +520,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         }
                     }}
                     onShare={setShareFile}
-                    folders={folders}
                 />
             </main>
 
