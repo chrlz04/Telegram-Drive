@@ -21,6 +21,7 @@ import { DragDropOverlay } from './dashboard/DragDropOverlay';
 import { PdfViewer } from './dashboard/PdfViewer';
 import { SettingsModal } from './dashboard/SettingsModal';
 import { DocxViewer } from './dashboard/DocxViewer';
+import { ShareDialog } from './dashboard/ShareDialog';
 
 // Hooks
 import { useTelegramConnection } from '../hooks/useTelegramConnection';
@@ -61,6 +62,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [playingFile, setPlayingFile] = useState<TelegramFile | null>(null);
     const [pdfFile, setPdfFile] = useState<TelegramFile | null>(null);
     const [docxFile, setDocxFile] = useState<TelegramFile | null>(null);
+    const [shareFile, setShareFile] = useState<TelegramFile | null>(null);
     const [previewContextFiles, setPreviewContextFiles] = useState<TelegramFile[]>([]);
     const [previewContextIndex, setPreviewContextIndex] = useState(-1);
 
@@ -490,7 +492,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     </div>
                 )}
                 <FileExplorer
-
+                    folders={folders}
                     files={displayedFiles}
                     loading={isLoading || isSearching}
                     error={error}
@@ -517,6 +519,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                             handleRenameFile(fileId, newName);
                         }
                     }}
+                    onShare={setShareFile}
+                    folders={folders}
                 />
             </main>
 
@@ -554,6 +558,13 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 isOpen={showSettings}
                 onClose={() => setShowSettings(false)}
             />
+
+            {shareFile && (
+                <ShareDialog
+                    file={shareFile}
+                    onClose={() => setShareFile(null)}
+                />
+            )}
         </div>
     );
 }

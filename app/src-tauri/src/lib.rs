@@ -2,6 +2,7 @@ pub mod models;
 
 pub mod commands;
 pub mod bandwidth;
+pub mod vpn_optimizer;
 
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -13,6 +14,9 @@ use rand::Rng;
 
 pub mod server;
 pub mod api_routes;
+pub mod db;
+pub mod share_routes;
+
 
 /// Single source of truth for the Actix streaming server port.
 /// Referenced in lib.rs (server startup) and exposed to the frontend
@@ -139,15 +143,26 @@ pub fn run() {
             app.manage(ActixServerHandle(server_handle_for_setup.clone()));
             app.manage(ApiServerHandle(Arc::new(std::sync::Mutex::new(None))));
             app.manage(ApiServerRunning(Arc::new(std::sync::atomic::AtomicBool::new(false))));
+            let loaded_config = vpn_optimizer::load_network_config(app.handle());
+            let net_config = Arc::new(vpn_optimizer::NetworkConfig::new_with_config(loaded_config));
+            app.manage(net_config.clone());
+            
+            // Initialize SQLite Database
+            let db_pool = db::init_db(app.handle()).map_err(|e| {
+                log::error!("Failed to initialize SQLite database: {}", e);
+                e
+            })?;
+            app.manage(db_pool.clone());
             
             // Start Streaming Server on dedicated thread (Actix needs its own runtime)
             let state = Arc::new(app.state::<TelegramState>().inner().clone());
             let token_for_server = stream_token.clone();
             let handle_for_thread = server_handle_for_setup.clone();
+            let db_pool_for_server = db_pool.clone();
             std::thread::spawn(move || {
                 let sys = actix_rt::System::new();
                 sys.block_on(async move {
-                    match server::start_server(state, STREAM_PORT, token_for_server).await {
+                    match server::start_server(state, STREAM_PORT, token_for_server, db_pool_for_server).await {
                         Ok(server) => {
                             // Store the handle so RunEvent::Exit can stop it
                             *handle_for_thread.lock().unwrap() = Some(server.handle());
@@ -161,6 +176,30 @@ pub fn run() {
 
             // Start API server if enabled in settings
             restart_api_server(app.handle());
+
+            // Start VPN keep-alive background task
+            {
+                let ka_config = net_config.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        let interval = ka_config.keep_alive_interval_sec();
+                        if interval == 0 {
+                            // Disabled — check again in 10s
+                            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                            continue;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(interval as u64)).await;
+                        // TCP ping to Telegram DC2 (best-effort)
+                        let _ = tauri::async_runtime::spawn_blocking(|| {
+                            use std::net::TcpStream;
+                            let _ = TcpStream::connect_timeout(
+                                &"149.154.167.50:443".parse().unwrap(),
+                                std::time::Duration::from_secs(5),
+                            );
+                        }).await;
+                    }
+                });
+            }
             
             Ok(())
         })
@@ -201,6 +240,14 @@ pub fn run() {
             commands::cmd_is_directory,
             commands::cmd_list_dir_files,
             commands::cmd_list_dir_entries,
+            commands::cmd_apply_proxy_settings,
+            commands::cmd_apply_vpn_settings,
+            commands::cmd_get_network_config,
+            commands::cmd_check_latency,
+            commands::cmd_detect_vpn,
+            commands::cmd_create_share,
+            commands::cmd_list_shares,
+            commands::cmd_revoke_share,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -231,21 +278,6 @@ pub fn run() {
             if let Some(handle) = api_handle {
                 log::info!("Stopping API server...");
                 drop(handle.stop(true));
-            }
-
-            // 4. Clear the thumbnail cache on quit
-            log::info!("Clearing thumbnail cache...");
-            if let Ok(data_dir) = app_handle.path().app_data_dir() {
-                let thumb_dir = data_dir.join("thumbnails");
-                if thumb_dir.exists() {
-                    let _ = std::fs::remove_dir_all(&thumb_dir);
-                }
-            }
-            if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
-                let previews_dir = cache_dir.join("previews");
-                if previews_dir.exists() {
-                    let _ = std::fs::remove_dir_all(&previews_dir);
-                }
             }
         }
     });

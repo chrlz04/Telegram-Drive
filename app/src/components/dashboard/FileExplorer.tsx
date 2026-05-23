@@ -3,7 +3,7 @@ import { Plus, ArrowUpDown, ArrowUp, ArrowDown, FolderUp } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { FileCard } from './FileCard';
 import { EmptyState } from './EmptyState';
-import { TelegramFile } from '../../types';
+import { TelegramFile, TelegramFolder } from '../../types';
 import { ContextMenu } from './ContextMenu';
 import { FileListItem } from './FileListItem';
 import { useSettings } from '../../context/SettingsContext';
@@ -31,6 +31,8 @@ interface FileExplorerProps {
     onDragStart?: (fileId: number) => void;
     onDragEnd?: () => void;
     onRename?: (fileId: number, newName: string) => void;
+    onShare?: (file: TelegramFile) => void;
+    folders?: TelegramFolder[];
 }
 
 
@@ -62,7 +64,8 @@ function useGridColumns(containerRef: React.RefObject<HTMLDivElement | null>) {
 
 export function FileExplorer({
     files, loading, error, viewMode, selectedIds, activeFolderId,
-    onFileClick, onDelete, onDownload, onPreview, onManualUpload, onFolderUpload, showFolderUpload, onSelectionClear, onToggleSelection, onDrop, onDragStart, onDragEnd, onRename
+    onFileClick, onDelete, onDownload, onPreview, onManualUpload, onFolderUpload, showFolderUpload, onSelectionClear, onToggleSelection, onDrop, onDragStart, onDragEnd, onRename, onShare,
+    folders
 }: FileExplorerProps) {
     const { settings } = useSettings();
     const scrollPb = settings.navbarStyle === 'floating-pill' ? '80px' : undefined;
@@ -400,6 +403,12 @@ export function FileExplorer({
                         setRenameValue(contextMenu.file.name);
                         setContextMenu(null);
                     } : undefined}
+                    onShare={onShare ? () => {
+                        onShare(contextMenu.file);
+                        setContextMenu(null);
+                    } : undefined}
+                    folders={folders}
+                    activeFolderId={activeFolderId}
                 />
             )}
 

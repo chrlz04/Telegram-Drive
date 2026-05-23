@@ -5,6 +5,7 @@ export interface TelegramFile {
     sizeStr: string; // Formatted size
     created_at?: string;
     type?: 'folder' | 'file'; // implied icon_type
+    folder_id?: number | null;
     // Add other fields if backend sends them
 }
 
@@ -12,6 +13,7 @@ export interface TelegramFolder {
     id: number;
     name: string;
     parent_id: number | null;
+    username?: string;
 }
 
 export interface QueueItem {
@@ -43,5 +45,17 @@ export interface DownloadItem {
     uploadedBytes?: number;
     totalBytes?: number;
     speedBytesPerSec?: number;
+    savePath?: string;
 }
-
+export interface ShareInfo {
+    id: string;
+    folder_id: number | null;
+    message_id: number;
+    file_name: string;
+    file_size: number;
+    created_at: number;
+    expires_at: number | null;
+    revoked: boolean;
+    has_password: boolean;
+    link: string;
+}
