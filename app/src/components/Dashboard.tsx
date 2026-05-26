@@ -561,6 +561,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             {shareFile && (
                 <ShareDialog
                     file={shareFile}
+                    folderId={activeFolderId}
                     onClose={() => setShareFile(null)}
                 />
             )}

@@ -6,10 +6,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface ShareDialogProps {
     file: TelegramFile;
+    folderId: number | null;
     onClose: () => void;
 }
 
-export function ShareDialog({ file, onClose }: ShareDialogProps) {
+export function ShareDialog({ file, folderId, onClose }: ShareDialogProps) {
     const [password, setPassword] = useState('');
     const [requirePassword, setRequirePassword] = useState(false);
     const [expiryType, setExpiryType] = useState<'never' | '1h' | '1d' | '7d' | 'custom'>('1d');
@@ -40,7 +41,7 @@ export function ShareDialog({ file, onClose }: ShareDialogProps) {
             const pwdParam = requirePassword && password.trim() ? password : null;
 
             const res = await invoke<ShareInfo>('cmd_create_share', {
-                folderId: null, // Always file-level for now
+                folderId,
                 messageId: file.id, // In Telegram Drive, file.id is the message id
                 fileName: file.name,
                 fileSize: file.size,
